@@ -5,3 +5,4 @@ opencv-python-headless
 mediapipe
 ultralytics==8.0.145
 numpy
+setuptools>=70.0.0
