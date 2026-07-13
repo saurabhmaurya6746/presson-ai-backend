@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+python-multipart
+opencv-python-headless
+mediapipe
+ultralytics==8.0.145
+numpy
