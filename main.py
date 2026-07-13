@@ -19,7 +19,7 @@ app.add_middleware(
 
 # YOLO मॉडल को लोड करना (सर्वर स्टार्ट होते ही एक बार लोड होगा)
 try:
-    model = YOLO("yolov8n.pt")
+    model = YOLO("yolo11n-seg.pt")
 except Exception as e:
     print(f"YOLO Load Error: {e}")
 
