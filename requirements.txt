@@ -1,8 +1,8 @@
+setuptools
 fastapi
 uvicorn
 python-multipart
 opencv-python-headless
-mediapipe==0.10.14
-ultralytics
+mediapipe
+ultralytics==8.0.145
 numpy
-setuptools
