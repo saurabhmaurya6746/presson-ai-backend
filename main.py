@@ -8,6 +8,8 @@ import cv2
 import numpy as np
 import mediapipe as mp
 from ultralytics import YOLO
+import uuid
+
 
 # 🚀 तुम्हारी खुद की फाइल्स से फंक्शन्स इंपोर्ट कर रहे हैं
 # (पक्का कर लेना कि फोल्डर का नाम utils हो या जहाँ भी ये फाइल्स रखी हैं)
@@ -142,9 +144,9 @@ async def process_image(file: UploadFile = File(...)):
             ]
 
         # 4. Processed image to Base64
-        _, buffer = cv2.imencode('.jpg', img)
-        encoded_image = base64.b64encode(buffer).decode('utf-8')
-        processed_image_base64 = f"data:image/jpeg;base64,{encoded_image}"
+        # _, buffer = cv2.imencode('.jpg', img)
+        # encoded_image = base64.b64encode(buffer).decode('utf-8')
+        # processed_image_base64 = f"data:image/jpeg;base64,{encoded_image}"
 
         # Clean temp file safely
         if os.path.exists(temp_path):
@@ -152,13 +154,24 @@ async def process_image(file: UploadFile = File(...)):
 
         gc.collect()
 
+        # 4. Save processed image to /media/processed/
+        filename = f"processed_{uuid.uuid4().hex}.jpg"
+        processed_dir = os.path.join("media", "processed")
+        os.makedirs(processed_dir, exist_ok=True)
+        processed_path = os.path.join(processed_dir, filename)
+        
+        cv2.imwrite(processed_path, img)
+        
+        processed_image_url = f"/media/processed/{filename}"
+        
         return {
             "status": "success",
-            "coin_detected": True, 
+            "coin_detected": coin_detected,
             "landmark_count": len(mask_polygons) if mask_polygons else 21,
             "identified_fingers": identified_fingers,
-            "processed_image": processed_image_base64
+            "processed_image": processed_image_url
         }
+
 
     except Exception as e:
         if os.path.exists(temp_path):
