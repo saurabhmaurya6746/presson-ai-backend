@@ -18,9 +18,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize MediaPipe and YOLOv11
-mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
+try:
+    import mediapipe.python.solutions.hands as mp_hands
+    import mediapipe.python.solutions.drawing_utils as mp_drawing
+except ImportError:
+    mp_hands = mp.solutions.hands
+    mp_drawing = mp.solutions.drawing_utils
 
 try:
     # YOLOv11 Model for Coin/Scale Detection
