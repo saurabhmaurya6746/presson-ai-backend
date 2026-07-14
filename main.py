@@ -92,7 +92,17 @@ async def process_image(file: UploadFile = File(...)):
                         mask_polygons.append(polygon_px)
 
         # 🖐️ YOUR MEASUREMENT LOGIC CALL
+        # 🖐️ YOUR MEASUREMENT LOGIC CALL
         identified_fingers = []
+        
+        # साइज़ डिसाइड करने का सिंपल रूल
+        def calculate_nail_size(width_mm):
+            if width_mm < 13.0:
+                return "Small"
+            elif width_mm < 15.0:
+                return "Medium"
+            else:
+                return "Large"
         
         if len(mask_polygons) > 0:
             try:
@@ -102,11 +112,12 @@ async def process_image(file: UploadFile = File(...)):
                 finger_types = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
                 for i, meas in enumerate(raw_measurements):
                     if i < len(finger_types):
-                        # HTML की डिमांड: finger, size, width_mm, height_mm, width_px, height_px
+                        w_mm = meas["width_mm"]
+                        # HTML की डिमांड के मुताबिक डेटा एलाइनमेंट
                         identified_fingers.append({
                             "finger": finger_types[i],
-                            "size": "Standard" if meas["width_mm"] < 15 else "Large",
-                            "width_mm": meas["width_mm"],
+                            "size": calculate_nail_size(w_mm),  # 👈 यहाँ Small/Medium/Large सेट होगा
+                            "width_mm": w_mm,
                             "height_mm": meas["height_mm"],
                             "width_px": meas["width_px"],
                             "height_px": meas["height_px"]
@@ -118,10 +129,10 @@ async def process_image(file: UploadFile = File(...)):
         if not identified_fingers:
             scale = pixels_per_mm if pixels_per_mm else 3.78
             identified_fingers = [
-                {"finger": "Thumb", "size": "Standard", "width_mm": 15.0, "height_mm": 55.0, "width_px": round(15 * scale), "height_px": round(55 * scale)},
-                {"finger": "Index", "size": "Standard", "width_mm": 14.0, "height_mm": 62.0, "width_px": round(14 * scale), "height_px": round(62 * scale)},
-                {"finger": "Middle", "size": "Large", "width_mm": 14.5, "height_mm": 68.0, "width_px": round(14.5 * scale), "height_px": round(68 * scale)},
-                {"finger": "Ring", "size": "Standard", "width_mm": 13.5, "height_mm": 61.0, "width_px": round(13.5 * scale), "height_px": round(61 * scale)},
+                {"finger": "Thumb", "size": "Large", "width_mm": 15.0, "height_mm": 55.0, "width_px": round(15 * scale), "height_px": round(55 * scale)},
+                {"finger": "Index", "size": "Medium", "width_mm": 14.0, "height_mm": 62.0, "width_px": round(14 * scale), "height_px": round(62 * scale)},
+                {"finger": "Middle", "size": "Medium", "width_mm": 14.5, "height_mm": 68.0, "width_px": round(14.5 * scale), "height_px": round(68 * scale)},
+                {"finger": "Ring", "size": "Medium", "width_mm": 13.5, "height_mm": 61.0, "width_px": round(13.5 * scale), "height_px": round(61 * scale)},
                 {"finger": "Pinky", "size": "Small", "width_mm": 12.0, "height_mm": 50.0, "width_px": round(12 * scale), "height_px": round(50 * scale)}
             ]
 
@@ -152,11 +163,12 @@ async def process_image(file: UploadFile = File(...)):
             "status": "success",
             "coin_detected": True,
             "landmark_count": 21,
+            # यहाँ भी एक्सेप्शन फॉलबैक में केवल Small, Medium, Large ही भेजा है
             "identified_fingers": [
-                {"finger": "Thumb", "size": "Standard", "width_mm": 15.0, "height_mm": 55.0, "width_px": 56, "height_px": 207},
-                {"finger": "Index", "size": "Standard", "width_mm": 14.0, "height_mm": 62.0, "width_px": 52, "height_px": 234},
-                {"finger": "Middle", "size": "Large", "width_mm": 14.5, "height_mm": 68.0, "width_px": 54, "height_px": 257},
-                {"finger": "Ring", "size": "Standard", "width_mm": 13.5, "height_mm": 61.0, "width_px": 51, "height_px": 230},
+                {"finger": "Thumb", "size": "Large", "width_mm": 15.0, "height_mm": 55.0, "width_px": 56, "height_px": 207},
+                {"finger": "Index", "size": "Medium", "width_mm": 14.0, "height_mm": 62.0, "width_px": 52, "height_px": 234},
+                {"finger": "Middle", "size": "Medium", "width_mm": 14.5, "height_mm": 68.0, "width_px": 54, "height_px": 257},
+                {"finger": "Ring", "size": "Medium", "width_mm": 13.5, "height_mm": 61.0, "width_px": 51, "height_px": 230},
                 {"finger": "Pinky", "size": "Small", "width_mm": 12.0, "height_mm": 50.0, "width_px": 45, "height_px": 189}
             ],
             "processed_image": "",
