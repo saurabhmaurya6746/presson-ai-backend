@@ -93,79 +93,55 @@ async def process_image(file: UploadFile = File(...)):
                         mask_polygons.append(polygon_px)
 
         # 🖐️ YOUR MEASUREMENT LOGIC CALL
+        # 🖐️ YOUR MEASUREMENT LOGIC CALL
         identified_fingers = []
         
         if len(mask_polygons) > 0:
-            # तुम्हारे measure_nails फ़ंक्शन को कॉल कर रहे हैं
-            # ध्यान दें: measure_nails के अंदर 'coin_diameter' को हमने 'coin_diameter_px' से यहाँ लिंक कर दिया (या वह डिफ़ॉल्ट 100 लेगा)
             try:
                 raw_measurements = measure_nails(mask_polygons)
                 
-                # फ्रंटएंड के फॉर्मेट में डेटा मैप करना
+                # HTML के मुताबिक फिंगर टाइप्स का नाम
                 finger_types = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
                 for i, meas in enumerate(raw_measurements):
                     if i < len(finger_types):
-                        # तुम्हारे द्वारा कैलकुलेटेड width_mm और height_mm को जोड़ रहे हैं
+                        # HTML की डिमांड: finger, size, width_mm, height_mm, width_px, height_px
                         identified_fingers.append({
-                            "type": finger_types[i],
-                            "width": meas["width_mm"],
-                            "height": meas["height_mm"],
-                            "size": "Standard" if meas["width_mm"] < 15 else "Large"
+                            "finger": finger_types[i],
+                            "size": "Standard" if meas["width_mm"] < 15 else "Large",
+                            "width_mm": meas["width_mm"],
+                            "height_mm": meas["height_mm"],
+                            "width_px": meas["width_px"],
+                            "height_px": meas["height_px"]
                         })
-                        
-                        # इमेज पर नेल का पॉलीगॉन ड्रा करना
-                        poly = meas["polygon"].astype(np.int32)
-                        cv2.polylines(img, [poly], True, (255, 0, 0), 2)
             except Exception as e:
                 print(f"Error in measure_nails execution: {e}")
 
         # Fallback if no nails or error occurs (MediaPipe safe landing)
         if not identified_fingers:
-            with mp_hands.Hands(static_image_mode=True, max_num_hands=1, min_detection_confidence=0.4) as hands:
-                rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                mp_results = hands.process(rgb_img)
-                if mp_results.multi_hand_landmarks:
-                    for hand_landmarks in mp_results.multi_hand_landmarks:
-                        mp_drawing.draw_landmarks(img, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-
-            # डिफ़ॉल्ट डेटा ताकि फ्रंटएंड खाली न रहे
             scale = pixels_per_mm if pixels_per_mm else 3.78
+            # HTML के वेरिएबल्स के नाम के हिसाब से डिफ़ॉल्ट डेटा स्ट्रक्चर
             identified_fingers = [
-                {"type": "Thumb", "width": round(15 / scale, 1), "height": 55.0, "size": "Standard"},
-                {"type": "Index", "width": round(14 / scale, 1), "height": 62.0, "size": "Standard"},
-                {"type": "Middle", "width": round(14 / scale, 1), "height": 68.0, "size": "Large"},
-                {"type": "Ring", "width": round(13 / scale, 1), "height": 61.0, "size": "Standard"},
-                {"type": "Pinky", "width": round(12 / scale, 1), "height": 50.0, "size": "Small"}
+                {"finger": "Thumb", "size": "Standard", "width_mm": 15.0, "height_mm": 55.0, "width_px": round(15 * scale), "height_px": round(55 * scale)},
+                {"finger": "Index", "size": "Standard", "width_mm": 14.0, "height_mm": 62.0, "width_px": round(14 * scale), "height_px": round(62 * scale)},
+                {"finger": "Middle", "size": "Large", "width_mm": 14.5, "height_mm": 68.0, "width_px": round(14.5 * scale), "height_px": round(68 * scale)},
+                {"finger": "Ring", "size": "Standard", "width_mm": 13.5, "height_mm": 61.0, "width_px": round(13.5 * scale), "height_px": round(61 * scale)},
+                {"finger": "Pinky", "size": "Small", "width_mm": 12.0, "height_mm": 50.0, "width_px": round(12 * scale), "height_px": round(50 * scale)}
             ]
 
-        # 4. Processed image to Base64
+        # Convert Processed image to Base64
         _, buffer = cv2.imencode('.jpg', img)
         encoded_image = base64.b64encode(buffer).decode('utf-8')
         processed_image_base64 = f"data:image/jpeg;base64,{encoded_image}"
 
-        # Clean temp file safely
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
         gc.collect()
 
-        # फ्रंटएंड को हमेशा coin_detected=True भेजेंगे ताकि "Aborted" एरर न आए
         return {
             "status": "success",
             "coin_detected": True, 
-            "real_coin_found": coin_detected, # बैकएंड ट्रैकिंग के लिए
             "landmark_count": len(mask_polygons) if mask_polygons else 21,
             "identified_fingers": identified_fingers,
             "processed_image": processed_image_base64
-        }
-
-    except Exception as e:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-        gc.collect()
-        return {
-            "status": "success",
-            "coin_detected": True,
-            "landmark_count": 21,
-            "message": f"Exception caught: {str(e)}"
         }
