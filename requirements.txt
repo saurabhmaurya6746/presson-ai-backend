@@ -3,7 +3,7 @@ fastapi
 uvicorn
 python-multipart
 opencv-python-headless
-mediapipe
+mediapipe==0.10.11
 https://download.pytorch.org/whl/cpu/torch-2.2.0%2Bcpu-cp311-cp311-linux_x86_64.whl
 https://download.pytorch.org/whl/cpu/torchvision-0.17.0%2Bcpu-cp311-cp311-linux_x86_64.whl
 ultralytics
