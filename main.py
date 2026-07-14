@@ -1,24 +1,19 @@
 import io
 import os
-import base64
 import gc
+import cv2
+import uuid
+import base64
+import numpy as np
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-import cv2
-import numpy as np
-import mediapipe as mp
 from ultralytics import YOLO
-import uuid
 
-
-# 🚀 तुम्हारी खुद की फाइल्स से फंक्शन्स इंपोर्ट कर रहे हैं
-# (पक्का कर लेना कि फोल्डर का नाम utils हो या जहाँ भी ये फाइल्स रखी हैं)
+# 🚀 Custom utils
 try:
     from utils.coin_detector import get_pixel_to_mm_ratio
-    # अगर measure_nails किसी और फाइल में है तो उसका नाम यहाँ सही कर लेना (जैसे: from utils.measurement import measure_nails)
     from utils.measurement import measure_nails 
 except ImportError:
-    # अगर डायरेक्ट इम्पोर्ट में दिक्कत आए तो फ़ालबैक के लिए नीचे फ़ंक्शन रेडी रहेगा
     pass
 
 app = FastAPI()
@@ -31,14 +26,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# MediaPipe Setup
-try:
-    import mediapipe.python.solutions.hands as mp_hands
-    import mediapipe.python.solutions.drawing_utils as mp_drawing
-except ImportError:
-    mp_hands = mp.solutions.hands
-    mp_drawing = mp.solutions.drawing_utils
-
 # YOLOv11 Segment Model
 try:
     model = YOLO("yolo11n-seg.pt")
@@ -49,81 +36,56 @@ except Exception as e:
 @app.get("/")
 def home():
     return {"status": "FastAPI is running perfectly on Render!"}
-    
+
 @app.post("/process-image/")
 async def process_image(file: UploadFile = File(...)):
     temp_path = "temp_processing_image.jpg"
     try:
-        # 1. Image Read successfully
         contents = await file.read()
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
         if img is None:
             return {"status": "error", "message": "Invalid Image Data"}
-        filename = f"processed_{uuid.uuid4().hex}.jpg"
-        processed_dir = os.path.join("media", "processed")
-        os.makedirs(processed_dir, exist_ok=True)
-        processed_path = os.path.join(processed_dir, filename)
-        
+
         h, w, _ = img.shape
-        
-        # temporary फाइल सेव कर रहे हैं क्योंकि तुम्हारा coin_detector इमेज पाथ मांगता है
         cv2.imwrite(temp_path, img)
 
-        # 2. 🪙 YOUR CUSTOM COIN DETECTION CALL
-        # ₹10 का सिक्का 27.0mm का होता है, तो डिफ़ॉल्ट 25.0 को 27.0 से पास करेंगे
+        # 🪙 Coin detection
         pixels_per_mm, coin_data = get_pixel_to_mm_ratio(temp_path, real_coin_diameter_mm=27.0)
-        
         coin_detected = False
-        coin_diameter_px = 100.0  # Default fallback
-        
         if coin_data is not None:
             coin_detected = True
-            coin_diameter_px = float(coin_data["diameter_px"])
-            # इमेज पर कॉइन का सर्कल ड्रा करना
             cv2.circle(img, coin_data["center"], coin_data["radius"], (0, 255, 0), 3)
             cv2.circle(img, coin_data["center"], 2, (0, 0, 255), 3)
 
-        # 3. 🧠 YOLO Segmentation & MediaPipe Combined Logic
+        # 🧠 YOLO segmentation
         mask_polygons = []
-        
         if model is not None:
             results = model(img, verbose=False)
             for result in results:
-                # अगर YOLO Segmentation ने नेल्स (Nails) के मास्क ढूंढे हैं
                 if result.masks is not None:
                     for xyn in result.masks.xyn:
-                        # Normalized coordinates को पिक्सेल में बदलना
                         polygon_px = xyn * np.array([w, h])
                         mask_polygons.append(polygon_px)
 
-        # 🖐️ YOUR MEASUREMENT LOGIC CALL
-        # 🖐️ YOUR MEASUREMENT LOGIC CALL
+        # 🖐️ Measurement logic
         identified_fingers = []
-        
-        # साइज़ डिसाइड करने का सिंपल रूल
         def calculate_nail_size(width_mm):
-            if width_mm < 13.0:
-                return "Small"
-            elif width_mm < 15.0:
-                return "Medium"
-            else:
-                return "Large"
-        
+            if width_mm < 13.0: return "Small"
+            elif width_mm < 15.0: return "Medium"
+            else: return "Large"
+
         if len(mask_polygons) > 0:
             try:
                 raw_measurements = measure_nails(mask_polygons)
-                
-                # फ्रंटएंड के फॉर्मेट में डेटा मैप करना
                 finger_types = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
                 for i, meas in enumerate(raw_measurements):
                     if i < len(finger_types):
                         w_mm = meas["width_mm"]
-                        # HTML की डिमांड के मुताबिक डेटा एलाइनमेंट
                         identified_fingers.append({
                             "finger": finger_types[i],
-                            "size": calculate_nail_size(w_mm),  # 👈 यहाँ Small/Medium/Large सेट होगा
+                            "size": calculate_nail_size(w_mm),
                             "width_mm": w_mm,
                             "height_mm": meas["height_mm"],
                             "width_px": meas["width_px"],
@@ -132,38 +94,33 @@ async def process_image(file: UploadFile = File(...)):
             except Exception as e:
                 print(f"Error in measure_nails execution: {e}")
 
-        # Fallback if no nails or error occurs (MediaPipe safe landing)
         if not identified_fingers:
             scale = pixels_per_mm if pixels_per_mm else 3.78
             identified_fingers = [
-                {"finger": "Thumb", "size": "Large", "width_mm": 15.0, "height_mm": 55.0, "width_px": round(15 * scale), "height_px": round(55 * scale)},
-                {"finger": "Index", "size": "Medium", "width_mm": 14.0, "height_mm": 62.0, "width_px": round(14 * scale), "height_px": round(62 * scale)},
-                {"finger": "Middle", "size": "Medium", "width_mm": 14.5, "height_mm": 68.0, "width_px": round(14.5 * scale), "height_px": round(68 * scale)},
-                {"finger": "Ring", "size": "Medium", "width_mm": 13.5, "height_mm": 61.0, "width_px": round(13.5 * scale), "height_px": round(61 * scale)},
-                {"finger": "Pinky", "size": "Small", "width_mm": 12.0, "height_mm": 50.0, "width_px": round(12 * scale), "height_px": round(50 * scale)}
+                {"finger": "Thumb", "size": "Large", "width_mm": 15.0, "height_mm": 55.0,
+                 "width_px": round(15 * scale), "height_px": round(55 * scale)},
+                {"finger": "Index", "size": "Medium", "width_mm": 14.0, "height_mm": 62.0,
+                 "width_px": round(14 * scale), "height_px": round(62 * scale)},
+                {"finger": "Middle", "size": "Medium", "width_mm": 14.5, "height_mm": 68.0,
+                 "width_px": round(14.5 * scale), "height_px": round(68 * scale)},
+                {"finger": "Ring", "size": "Medium", "width_mm": 13.5, "height_mm": 61.0,
+                 "width_px": round(13.5 * scale), "height_px": round(61 * scale)},
+                {"finger": "Pinky", "size": "Small", "width_mm": 12.0, "height_mm": 50.0,
+                 "width_px": round(12 * scale), "height_px": round(50 * scale)}
             ]
 
-        # 4. Processed image to Base64
-        # _, buffer = cv2.imencode('.jpg', img)
-        # encoded_image = base64.b64encode(buffer).decode('utf-8')
-        # processed_image_base64 = f"data:image/jpeg;base64,{encoded_image}"
-
-        # Clean temp file safely
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-
-        gc.collect()
-
-        # 4. Save processed image to /media/processed/
+        # ✅ Save processed image to /media/processed/
         filename = f"processed_{uuid.uuid4().hex}.jpg"
         processed_dir = os.path.join("media", "processed")
         os.makedirs(processed_dir, exist_ok=True)
         processed_path = os.path.join(processed_dir, filename)
-        
         cv2.imwrite(processed_path, img)
-        
         processed_image_url = f"/media/processed/{filename}"
-        
+
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        gc.collect()
+
         return {
             "status": "success",
             "coin_detected": coin_detected,
@@ -172,23 +129,15 @@ async def process_image(file: UploadFile = File(...)):
             "processed_image": processed_image_url
         }
 
-
     except Exception as e:
         if os.path.exists(temp_path):
             os.remove(temp_path)
         gc.collect()
         return {
-            "status": "success",
-            "coin_detected": True,
-            "landmark_count": 21,
-            # यहाँ भी एक्सेप्शन फॉलबैक में केवल Small, Medium, Large ही भेजा है
-            "identified_fingers": [
-                {"finger": "Thumb", "size": "Large", "width_mm": 15.0, "height_mm": 55.0, "width_px": 56, "height_px": 207},
-                {"finger": "Index", "size": "Medium", "width_mm": 14.0, "height_mm": 62.0, "width_px": 52, "height_px": 234},
-                {"finger": "Middle", "size": "Medium", "width_mm": 14.5, "height_mm": 68.0, "width_px": 54, "height_px": 257},
-                {"finger": "Ring", "size": "Medium", "width_mm": 13.5, "height_mm": 61.0, "width_px": 51, "height_px": 230},
-                {"finger": "Pinky", "size": "Small", "width_mm": 12.0, "height_mm": 50.0, "width_px": 45, "height_px": 189}
-            ],
-            "processed_image": "",
-            "message": f"Exception caught: {str(e)}"
+            "status": "error",
+            "message": str(e),
+            "coin_detected": False,
+            "landmark_count": 0,
+            "identified_fingers": [],
+            "processed_image": ""
         }
