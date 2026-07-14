@@ -100,11 +100,6 @@ async def process_image(file: UploadFile = File(...)):
                     
                     # ओरिजinal इमेज और ओवरले को मिक्स करना (0.6 और 0.4 का मतलब 40% ट्रांसपेरेंसी)
                     img = cv2.addWeighted(overlay, 0.4, img, 0.6, 0)
-
-        # 🖐️ YOUR MEASUREMENT LOGIC CALL
-
-        # 🖐️ YOUR MEASUREMENT LOGIC CALL
-        # 🖐️ YOUR MEASUREMENT LOGIC CALL
         identified_fingers = []
         
         # साइज़ डिसाइड करने का सिंपल रूल
@@ -149,7 +144,7 @@ async def process_image(file: UploadFile = File(...)):
             ]
 
         # 4. Processed image to Base64
-       success, buffer = cv2.imencode(".jpg", img)
+        success, buffer = cv2.imencode(".jpg", img)
 
         if success:
             processed_image_base64 = (
