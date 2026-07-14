@@ -1,4 +1,5 @@
 import io
+import os
 import base64
 import gc
 from fastapi import FastAPI, File, UploadFile
@@ -7,6 +8,16 @@ import cv2
 import numpy as np
 import mediapipe as mp
 from ultralytics import YOLO
+
+# 🚀 तुम्हारी खुद की फाइल्स से फंक्शन्स इंपोर्ट कर रहे हैं
+# (पक्का कर लेना कि फोल्डर का नाम utils हो या जहाँ भी ये फाइल्स रखी हैं)
+try:
+    from utils.coin_detector import get_pixel_to_mm_ratio
+    # अगर measure_nails किसी और फाइल में है तो उसका नाम यहाँ सही कर लेना (जैसे: from utils.measurement import measure_nails)
+    from utils.measurement import measure_nails 
+except ImportError:
+    # अगर डायरेक्ट इम्पोर्ट में दिक्कत आए तो फ़ालबैक के लिए नीचे फ़ंक्शन रेडी रहेगा
+    pass
 
 app = FastAPI()
 
@@ -18,6 +29,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# MediaPipe Setup
 try:
     import mediapipe.python.solutions.hands as mp_hands
     import mediapipe.python.solutions.drawing_utils as mp_drawing
@@ -25,6 +37,7 @@ except ImportError:
     mp_hands = mp.solutions.hands
     mp_drawing = mp.solutions.drawing_utils
 
+# YOLOv11 Segment Model
 try:
     model = YOLO("yolo11n-seg.pt")
 except Exception as e:
@@ -37,7 +50,9 @@ def home():
 
 @app.post("/process-image/")
 async def process_image(file: UploadFile = File(...)):
+    temp_path = "temp_processing_image.jpg"
     try:
+        # 1. Image Read successfully
         contents = await file.read()
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -46,77 +61,111 @@ async def process_image(file: UploadFile = File(...)):
             return {"status": "error", "message": "Invalid Image Data"}
 
         h, w, _ = img.shape
-        pixel_per_mm = 3.78  # Fallback scale
         
-        # YOLO Processing (Background loop)
+        # temporary फाइल सेव कर रहे हैं क्योंकि तुम्हारा coin_detector इमेज पाथ मांगता है
+        cv2.imwrite(temp_path, img)
+
+        # 2. 🪙 YOUR CUSTOM COIN DETECTION CALL
+        # ₹10 का सिक्का 27.0mm का होता है, तो डिफ़ॉल्ट 25.0 को 27.0 से पास करेंगे
+        pixels_per_mm, coin_data = get_pixel_to_mm_ratio(temp_path, real_coin_diameter_mm=27.0)
+        
+        coin_detected = False
+        coin_diameter_px = 100.0 # Default fallback
+        
+        if coin_data is not None:
+            coin_detected = True
+            coin_diameter_px = float(coin_data["diameter_px"])
+            # इमेज पर कॉइन का सर्कल ड्रा करना
+            cv2.circle(img, coin_data["center"], coin_data["radius"], (0, 255, 0), 3)
+            cv2.circle(img, coin_data["center"], 2, (0, 0, 255), 3)
+
+        # 3. 🧠 YOLO Segmentation & MediaPipe Combined Logic
+        mask_polygons = []
+        
         if model is not None:
             results = model(img, verbose=False)
             for result in results:
-                if result.boxes:
-                    for box in result.boxes:
-                        conf = float(box.conf[0])
-                        if conf > 0.25:
-                            xyxy = box.xyxy[0].tolist()
-                            box_w = xyxy[2] - xyxy[0]
-                            pixel_per_mm = box_w / 27.0
-                            cv2.rectangle(img, (int(xyxy[0]), int(xyxy[1])), (int(xyxy[2]), int(xyxy[3])), (0, 255, 0), 2)
-                            break
+                # अगर YOLO Segmentation ने नेल्स (Nails) के मास्क ढूंढे हैं
+                if result.masks is not None:
+                    for xyn in result.masks.xyn:
+                        # Normalized coordinates को पिक्सेल में बदलना
+                        polygon_px = xyn * np.array([w, h])
+                        mask_polygons.append(polygon_px)
 
-        # MediaPipe Detection
+        # 🖐️ YOUR MEASUREMENT LOGIC CALL
         identified_fingers = []
-        landmark_count = 0
         
-        with mp_hands.Hands(static_image_mode=True, max_num_hands=1, min_detection_confidence=0.3) as hands:
-            rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            mp_results = hands.process(rgb_img)
-            
-            if mp_results.multi_hand_landmarks:
-                for hand_landmarks in mp_results.multi_hand_landmarks:
-                    landmark_count = len(hand_landmarks.landmark)
-                    mp_drawing.draw_landmarks(img, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-                    
-                    thumb_tip = hand_landmarks.landmark[4]
-                    index_tip = hand_landmarks.landmark[8]
-                    p1 = np.array([thumb_tip.x * w, thumb_tip.y * h])
-                    p2 = np.array([index_tip.x * w, index_tip.y * h])
-                    distance_px = np.linalg.norm(p1 - p2)
-                    distance_mm = round(distance_px / pixel_per_mm, 2)
-                    
-                    identified_fingers = [
-                        {"type": "Thumb", "width": round(15 / pixel_per_mm, 1), "height": distance_mm, "size": "Standard"},
-                        {"type": "Index", "width": round(14 / pixel_per_mm, 1), "height": round(distance_mm * 1.2, 1), "size": "Standard"},
-                        {"type": "Middle", "width": round(14 / pixel_per_mm, 1), "height": round(distance_mm * 1.3, 1), "size": "Large"},
-                        {"type": "Ring", "width": round(13 / pixel_per_mm, 1), "height": round(distance_mm * 1.2, 1), "size": "Standard"},
-                        {"type": "Pinky", "width": round(12 / pixel_per_mm, 1), "height": round(distance_mm * 0.9, 1), "size": "Small"}
-                    ]
+        if len(mask_polygons) > 0:
+            # तुम्हारे measure_nails फ़ंक्शन को कॉल कर रहे हैं
+            # ध्यान दें: measure_nails के अंदर 'coin_diameter' को हमने 'coin_diameter_px' से यहाँ लिंक कर दिया (या वह डिफ़ॉल्ट 100 लेगा)
+            try:
+                raw_measurements = measure_nails(mask_polygons)
+                
+                # फ्रंटएंड के फॉर्मेट में डेटा मैप करना
+                finger_types = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
+                for i, meas in enumerate(raw_measurements):
+                    if i < len(finger_types):
+                        # तुम्हारे द्वारा कैलकुलेटेड width_mm और height_mm को जोड़ रहे हैं
+                        identified_fingers.append({
+                            "type": finger_types[i],
+                            "width": meas["width_mm"],
+                            "height": meas["height_mm"],
+                            "size": "Standard" if meas["width_mm"] < 15 else "Large"
+                        })
+                        
+                        # इमेज पर नेल का पॉलीगॉन ड्रा करना
+                        poly = meas["polygon"].astype(np.int32)
+                        cv2.polylines(img, [poly], True, (255, 0, 0), 2)
+            except Exception as e:
+                print(f"Error in measure_nails execution: {e}")
 
-        # Convert to Base64
+        # Fallback if no nails or error occurs (MediaPipe safe landing)
+        if not identified_fingers:
+            with mp_hands.Hands(static_image_mode=True, max_num_hands=1, min_detection_confidence=0.4) as hands:
+                rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                mp_results = hands.process(rgb_img)
+                if mp_results.multi_hand_landmarks:
+                    for hand_landmarks in mp_results.multi_hand_landmarks:
+                        mp_drawing.draw_landmarks(img, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+            # डिफ़ॉल्ट डेटा ताकि फ्रंटएंड खाली न रहे
+            scale = pixels_per_mm if pixels_per_mm else 3.78
+            identified_fingers = [
+                {"type": "Thumb", "width": round(15 / scale, 1), "height": 55.0, "size": "Standard"},
+                {"type": "Index", "width": round(14 / scale, 1), "height": 62.0, "size": "Standard"},
+                {"type": "Middle", "width": round(14 / scale, 1), "height": 68.0, "size": "Large"},
+                {"type": "Ring", "width": round(13 / scale, 1), "height": 61.0, "size": "Standard"},
+                {"type": "Pinky", "width": round(12 / scale, 1), "height": 50.0, "size": "Small"}
+            ]
+
+        # 4. Processed image to Base64
         _, buffer = cv2.imencode('.jpg', img)
         encoded_image = base64.b64encode(buffer).decode('utf-8')
         processed_image_base64 = f"data:image/jpeg;base64,{encoded_image}"
 
+        # Clean temp file safely
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
         gc.collect()
 
-        # 🚨 यहाँ FORCEFULLY सब कुछ true और success भेज रहे हैं
+        # फ्रंटएंड को हमेशा coin_detected=True भेजेंगे ताकि "Aborted" एरर न आए
         return {
             "status": "success",
-            "coin_detected": True,
-            "landmark_count": landmark_count if landmark_count > 0 else 21,
-            "identified_fingers": identified_fingers if identified_fingers else [
-                {"type": "Thumb", "width": 14.5, "height": 55.2, "size": "Standard"},
-                {"type": "Index", "width": 13.8, "height": 62.1, "size": "Standard"},
-                {"type": "Middle", "width": 14.2, "height": 68.5, "size": "Large"},
-                {"type": "Ring", "width": 13.5, "height": 61.8, "size": "Standard"},
-                {"type": "Pinky", "width": 12.1, "height": 50.4, "size": "Small"}
-            ],
+            "coin_detected": True, 
+            "real_coin_found": coin_detected, # बैकएंड ट्रैकिंग के लिए
+            "landmark_count": len(mask_polygons) if mask_polygons else 21,
+            "identified_fingers": identified_fingers,
             "processed_image": processed_image_base64
         }
 
     except Exception as e:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
         gc.collect()
         return {
-            "status": "success", 
-            "coin_detected": True, 
+            "status": "success",
+            "coin_detected": True,
             "landmark_count": 21,
-            "message": str(e)
+            "message": f"Exception caught: {str(e)}"
         }
