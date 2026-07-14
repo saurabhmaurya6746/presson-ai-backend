@@ -4,5 +4,8 @@ uvicorn
 python-multipart
 opencv-python-headless
 mediapipe
+--find-links https://download.pytorch.org/whl/cpu
+torch==2.2.0+cpu
+torchvision==0.17.0+cpu
 ultralytics==8.0.145
-numpy
+numpy<2.0.0
