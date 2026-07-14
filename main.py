@@ -149,9 +149,15 @@ async def process_image(file: UploadFile = File(...)):
             ]
 
         # 4. Processed image to Base64
-        _, buffer = cv2.imencode('.jpg', img)
-        encoded_image = base64.b64encode(buffer).decode('utf-8')
-        processed_image_base64 = f"data:image/jpeg;base64,{encoded_image}"
+       success, buffer = cv2.imencode(".jpg", img)
+
+        if success:
+            processed_image_base64 = (
+                "data:image/jpeg;base64," +
+                base64.b64encode(buffer.tobytes()).decode("utf-8")
+            )
+        else:
+            processed_image_base64 = ""
 
         # Clean temp file safely
         if os.path.exists(temp_path):
