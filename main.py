@@ -47,6 +47,7 @@ except Exception as e:
 @app.get("/")
 def home():
     return {"status": "FastAPI is running perfectly on Render!"}
+    
 @app.post("/process-image/")
 async def process_image(file: UploadFile = File(...)):
     temp_path = "temp_processing_image.jpg"
@@ -58,7 +59,11 @@ async def process_image(file: UploadFile = File(...)):
 
         if img is None:
             return {"status": "error", "message": "Invalid Image Data"}
-
+        filename = f"processed_{uuid.uuid4().hex}.jpg"
+        processed_dir = os.path.join("media", "processed")
+        os.makedirs(processed_dir, exist_ok=True)
+        processed_path = os.path.join(processed_dir, filename)
+        
         h, w, _ = img.shape
         
         # temporary फाइल सेव कर रहे हैं क्योंकि तुम्हारा coin_detector इमेज पाथ मांगता है
