@@ -79,17 +79,29 @@ async def process_image(file: UploadFile = File(...)):
             cv2.circle(img, coin_data["center"], 2, (0, 0, 255), 3)
 
         # 3. 🧠 YOLO Segmentation & MediaPipe Combined Logic
+        # 3. 🧠 YOLO Segmentation & MediaPipe Combined Logic
         mask_polygons = []
         
         if model is not None:
             results = model(img, verbose=False)
             for result in results:
-                # अगर YOLO Segmentation ने नेल्स (Nails) के मास्क ढूंढे हैं
                 if result.masks is not None:
+                    # ड्रा करने के लिए एक ओवरले (Overlay) इमेज बनाएंगे ताकि कलर्स ट्रांसपेरेंट दिखें
+                    overlay = img.copy()
+                    
                     for xyn in result.masks.xyn:
                         # Normalized coordinates को पिक्सेल में बदलना
-                        polygon_px = xyn * np.array([w, h])
+                        polygon_px = (xyn * np.array([w, h])).astype(np.int32)
                         mask_polygons.append(polygon_px)
+                        
+                        # 🚨 यहाँ आ गया जादू: हर एक नाखून (Nail) के ऊपर सुंदर सा नीला/हरा मास्क ड्रा करना
+                        cv2.fillPoly(overlay, [polygon_px], (255, 105, 180)) # Hot Pink / Neon color
+                        cv2.polylines(overlay, [polygon_px], True, (255, 255, 255), 2) # White Border
+                    
+                    # ओरिजinal इमेज और ओवरले को मिक्स करना (0.6 और 0.4 का मतलब 40% ट्रांसपेरेंसी)
+                    img = cv2.addWeighted(overlay, 0.4, img, 0.6, 0)
+
+        # 🖐️ YOUR MEASUREMENT LOGIC CALL
 
         # 🖐️ YOUR MEASUREMENT LOGIC CALL
         # 🖐️ YOUR MEASUREMENT LOGIC CALL
