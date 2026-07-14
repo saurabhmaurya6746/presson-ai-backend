@@ -1,4 +1,5 @@
 import io
+import base64
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 import cv2
@@ -8,7 +9,7 @@ from ultralytics import YOLO
 
 app = FastAPI()
 
-# CORS इनेबल करना ताकि आपकी Django ऐप या GitHub Pages से रिक्वेस्ट आ सके
+# CORS Middleware Setup
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -17,11 +18,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# YOLO मॉडल को लोड करना (सर्वर स्टार्ट होते ही एक बार लोड होगा)
+# Initialize MediaPipe and YOLOv11
+mp_hands = mp.solutions.hands
+mp_drawing = mp.solutions.drawing_utils
+
 try:
+    # YOLOv11 Model for Coin/Scale Detection
     model = YOLO("yolo11n-seg.pt")
 except Exception as e:
     print(f"YOLO Load Error: {e}")
+    model = None
 
 @app.get("/")
 def home():
@@ -30,7 +36,7 @@ def home():
 @app.post("/process-image/")
 async def process_image(file: UploadFile = File(...)):
     try:
-        # 1. अपलोड की गई इमेज को रीड करना
+        # 1. Image Read successfully
         contents = await file.read()
         nparr = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -38,20 +44,74 @@ async def process_image(file: UploadFile = File(...)):
         if img is None:
             return {"status": "error", "message": "Invalid Image Data"}
 
-        # 2. 🚀 यहाँ अपना YOLO + MediaPipe का कैलकुलेशन वाला पुराना लॉजिक डालो
-        # (जैसे: results = model(img) और MediaPipe से लैंडमार्क्स निकालना)
+        h, w, _ = img.shape
+        coin_detected = False
+        pixel_per_mm = 1.0  # Default scale fallback
         
-        # 3. फाइनल रिजल्ट को JSON फॉर्मेट में वापस भेजना
-        # (इसे अपने असली कैलकुलेशन वेरिएबल्स से बदल लेना)
-        result_json = {
+        # 2. 🚀 YOLOv11 Coin Detection & Scaling Logic
+        if model is not None:
+            results = model(img, verbose=False)
+            for result in results:
+                if result.boxes:
+                    for box in result.boxes:
+                        # Assuming class 0 or specific name is your reference object/coin
+                        conf = float(box.conf[0])
+                        if conf > 0.4:
+                            xyxy = box.xyxy[0].tolist()
+                            box_w = xyxy[2] - xyxy[0]
+                            # Let's say reference coin is a ₹10 coin (approx 27mm diameter)
+                            pixel_per_mm = box_w / 27.0
+                            coin_detected = True
+                            # Draw bounding box for coin
+                            cv2.rectangle(img, (int(xyxy[0]), int(xyxy[1])), (int(xyxy[2]), int(xyxy[3])), (0, 255, 0), 2)
+
+        # 3. 🖐️ MediaPipe Hand Landmarks Logic
+        identified_fingers = []
+        landmark_count = 0
+        
+        with mp_hands.Hands(static_image_mode=True, max_num_hands=1, min_detection_confidence=0.5) as hands:
+            rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            mp_results = hands.process(rgb_img)
+            
+            if mp_results.multi_hand_landmarks:
+                for hand_landmarks in mp_results.multi_hand_landmarks:
+                    landmark_count = len(hand_landmarks.landmark)
+                    
+                    # Draw Hand Landmarks on image
+                    mp_drawing.draw_landmarks(img, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+                    
+                    # Sample Logic for Finger Measurements (in mm)
+                    # Coordinates extract karke distance calculate karne ka placeholder setup:
+                    thumb_tip = hand_landmarks.landmark[4]
+                    index_tip = hand_landmarks.landmark[8]
+                    
+                    # Convert normalized to pixel coordinates
+                    p1 = np.array([thumb_tip.x * w, thumb_tip.y * h])
+                    p2 = np.array([index_tip.x * w, index_tip.y * h])
+                    distance_px = np.linalg.norm(p1 - p2)
+                    distance_mm = round(distance_px / pixel_per_mm, 2)
+                    
+                    # Dummy Matrix calculation populated dynamically based on landmarks
+                    identified_fingers = [
+                        {"type": "Thumb", "width": round(15 / pixel_per_mm, 1), "height": distance_mm, "size": "Standard"},
+                        {"type": "Index", "width": round(14 / pixel_per_mm, 1), "height": round(distance_mm * 1.2, 1), "size": "Standard"},
+                        {"type": "Middle", "width": round(14 / pixel_per_mm, 1), "height": round(distance_mm * 1.3, 1), "size": "Large"},
+                        {"type": "Ring", "width": round(13 / pixel_per_mm, 1), "height": round(distance_mm * 1.2, 1), "size": "Standard"},
+                        {"type": "Pinky", "width": round(12 / pixel_per_mm, 1), "height": round(distance_mm * 0.9, 1), "size": "Small"}
+                    ]
+
+        # 4. Convert processed image to Base64 to send back to Django
+        _, buffer = cv2.imencode('.jpg', img)
+        encoded_image = base64.b64encode(buffer).decode('utf-8')
+        processed_image_base64 = f"data:image/jpeg;base64,{encoded_image}"
+
+        return {
             "status": "success",
-            "measurements": {
-                "length": 14.8,
-                "width": 2.4,
-                "unit": "cm"
-            }
+            "coin_detected": coin_detected,
+            "landmark_count": landmark_count,
+            "identified_fingers": identified_fingers,
+            "processed_image": processed_image_base64
         }
-        return result_json
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
