@@ -13,11 +13,10 @@ from ultralytics import YOLO
 # (पक्का कर लेना कि फोल्डर का नाम utils हो या जहाँ भी ये फाइल्स रखी हैं)
 try:
     from utils.coin_detector import get_pixel_to_mm_ratio
-    # अगर measure_nails किसी और फाइल में है तो उसका नाम यहाँ सही कर लेना (जैसे: from utils.measurement import measure_nails)
-    from utils.measurement import measure_nails 
-except ImportError:
-    # अगर डायरेक्ट इम्पोर्ट में दिक्कत आए तो फ़ालबैक के लिए नीचे फ़ंक्शन रेडी रहेगा
-    pass
+    from utils.measurement import measure_nails
+except Exception as e:
+    print("IMPORT ERROR:", e)
+    raise
 
 app = FastAPI()
 
