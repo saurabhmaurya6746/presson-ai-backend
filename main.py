@@ -38,7 +38,7 @@ except ImportError:
 
 # YOLOv11 Segment Model
 try:
-    model = YOLO("yolo11n-seg.pt")
+    model = YOLO("weights/best.pt")
 except Exception as e:
     print(f"YOLO Load Error: {e}")
     model = None
