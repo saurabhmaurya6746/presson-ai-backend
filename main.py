@@ -117,7 +117,10 @@ async def process_image(file: UploadFile = File(...)):
         
         if len(mask_polygons) > 0:
             try:
-                raw_measurements = measure_nails(mask_polygons)
+                raw_measurements=measure_nails(
+                                             mask_polygons,
+                                             pixels_per_mm
+                                                )
                 
                 # फ्रंटएंड के फॉर्मेट में डेटा मैप करना
                 finger_types = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
